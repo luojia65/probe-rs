@@ -14,6 +14,7 @@ use commands::{
         info::{Command, PacketCount, PacketSize},
         reset::{ResetRequest, ResetResponse},
     },
+    jtag,
     swd,
     swj::{
         clock::{SWJClockRequest, SWJClockResponse},
@@ -121,6 +122,22 @@ impl DAPLink {
         .and_then(|v| match v {
             swd::configure::ConfigureResponse(Status::DAPOk) => Ok(()),
             swd::configure::ConfigureResponse(Status::DAPError) => Err(anyhow!(CmsisDapError::ErrorResponse)),
+        })?;
+        Ok(())
+    }
+
+    // Ref: configure_swd
+    fn configure_jtag(
+        &mut self,
+        request: jtag::configure::ConfigureRequest,
+    ) -> Result<(), CmsisDapError> {
+        commands::send_command::<jtag::configure::ConfigureRequest, jtag::configure::ConfigureResponse>(
+            &mut self.device,
+            request
+        )
+        .and_then(|v| match v {
+            jtag::configure::ConfigureResponse(Status::DAPOk) => Ok(()),
+            jtag::configure::ConfigureResponse(Status::DAPError) => Err(anyhow!(CmsisDapError::ErrorResponse)),
         })?;
         Ok(())
     }
@@ -289,7 +306,7 @@ impl DebugProbe for DAPLink {
             ConnectRequest::UseDefaultPort
         };
 
-        let _result = commands::send_command(&mut self.device, protocol).and_then(|v| match v {
+        let wire_protocol = commands::send_command(&mut self.device, protocol).and_then(|v| match v {
             ConnectResponse::SuccessfulInitForSWD => Ok(WireProtocol::Swd),
             ConnectResponse::SuccessfulInitForJTAG => Ok(WireProtocol::Jtag),
             ConnectResponse::InitFailed => Err(anyhow!(CmsisDapError::ErrorResponse)),
@@ -304,7 +321,18 @@ impl DebugProbe for DAPLink {
             match_retry: 0,
         })?;
 
-        self.configure_swd(swd::configure::ConfigureRequest {})?;
+        // self.configure_swd(swd::configure::ConfigureRequest {})?;
+        match wire_protocol {
+            WireProtocol::Swd => {
+                self.configure_swd(swd::configure::ConfigureRequest {})?;
+                debug!("Successfully changed to SWD.");
+            },
+            WireProtocol::Jtag => {
+                self.configure_jtag(jtag::configure::ConfigureRequest {})?;
+                debug!("Successfully changed to JTag.");
+            }
+        }
+        // ^ todo: is this correct?
 
         self.send_swj_sequences(SequenceRequest::new(&[
             0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -317,8 +345,6 @@ impl DebugProbe for DAPLink {
         ])?)?;
 
         self.send_swj_sequences(SequenceRequest::new(&[0x00])?)?;
-
-        debug!("Successfully changed to SWD.");
 
         Ok(())
     }
@@ -337,10 +363,13 @@ impl DebugProbe for DAPLink {
     fn select_protocol(&mut self, protocol: WireProtocol) -> Result<(), DebugProbeError> {
         match protocol {
             WireProtocol::Jtag => {
-                log::warn!(
-                    "Support for JTAG protocol is not yet implemented for CMSIS-DAP based probes."
-                );
-                Err(DebugProbeError::UnsupportedProtocol(WireProtocol::Jtag))
+                // log::warn!(
+                //     "Support for JTAG protocol is not yet implemented for CMSIS-DAP based probes."
+                // );
+                // Err(DebugProbeError::UnsupportedProtocol(WireProtocol::Jtag))
+                // todo: is this change correct?
+                self.protocol = Some(WireProtocol::Jtag);
+                Ok(())
             }
             WireProtocol::Swd => {
                 self.protocol = Some(WireProtocol::Swd);

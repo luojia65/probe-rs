@@ -1,4 +1,5 @@
 pub mod general;
+pub mod jtag;
 pub mod swd;
 pub mod swj;
 pub mod transfer;
